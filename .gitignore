@@ -1,0 +1,17 @@
+# Common things people forget
+node_modules/
+.env
+.env.local
+.env.*.local
+.DS_Store
+dist/
+build/
+coverage/
+*.log
+tmp/
+temp/
+vendor/
+*.secret
+*.pem
+*.key
+# etc. — add whatever applies to your project
