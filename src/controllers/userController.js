@@ -1,6 +1,7 @@
 import User from "../models/User.js";
+import cloudinary from "../config/cloudinary.js";
+import fs from "fs/promises";
 
-// Get current user profile
 export const getMe = async (req, res, next) => {
     try {
         const user = await User.findById(req.user.id)
@@ -15,69 +16,54 @@ export const getMe = async (req, res, next) => {
     }
 };
 
-// This would actually upload to cloud and return URL.
-// For now, we simulate using a fake URL from file name.
 export const uploadProfileImage = async (req, res, next) => {
     try {
         if (!req.file) {
-            return res
-                .status(400)
-                .json({ success: false, message: "Image file required" });
+            return res.status(400).json({
+                success: false,
+                message: "Please upload an image",
+            });
         }
 
-        // Here you'd do cloud upload, example:
-        // const result = await cloudinary.uploader.upload_stream(...buffer...)
-        // For demo:
-        const fakeUrl = `https://example.com/images/${req.file.originalname}`;
+        const result = await cloudinary.uploader.upload(req.file.path, {
+            folder: "profile-pictures",
+            width: 500,
+            height: 500,
+            crop: "fill",
+            gravity: "face",
+            quality: "auto",
+            fetch_format: "auto",
+        });
+
+        const imageUrl = result.secure_url;
+
+        if (req.user.profileImageUrl) {
+            const oldPublicId = req.user.profileImageUrl
+                .split("/")
+                .slice(-2)
+                .join("/")
+                .split(".")[0];
+            await cloudinary.uploader.destroy(oldPublicId).catch(() => { });
+        }
+
+        await fs.unlink(req.file.path).catch(() => { });
 
         const user = await User.findByIdAndUpdate(
             req.user.id,
-            { profileImageUrl: fakeUrl },
+            { profileImageUrl: imageUrl },
             { new: true }
-        ).select("email name profileImageUrl");
+        ).select("name email profileImageUrl");
 
         return res.json({
             success: true,
-            message: "Profile image updated",
+            message: "Profile picture updated successfully!",
             data: user,
         });
     } catch (err) {
-        next(err);
-    }
-};
-
-// Admin-only: list users with query optimization
-export const listUsers = async (req, res, next) => {
-    try {
-        const { page = 1, limit = 10, search = "" } = req.query;
-        const pageNum = parseInt(page, 10);
-        const limitNum = parseInt(limit, 10);
-
-        const query = {};
-        if (search) {
-            query.email = { $regex: search, $options: "i" };
+        if (req.file?.path) {
+            await fs.unlink(req.file.path).catch(() => { });
         }
-
-        const [users, total] = await Promise.all([
-            User.find(query)
-                .select("email name roles createdAt")
-                .sort({ createdAt: -1 })
-                .skip((pageNum - 1) * limitNum)
-                .limit(limitNum)
-                .lean(), // lean() for performance
-            User.countDocuments(query),
-        ]);
-
-        return res.json({
-            success: true,
-            data: users,
-            meta: {
-                total,
-                page: pageNum,
-                pages: Math.ceil(total / limitNum),
-            },
-        });
-    } catch (err) {
         next(err);
     }
 };
+

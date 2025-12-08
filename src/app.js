@@ -26,6 +26,7 @@ app.use(cookieParser());
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
+app.use('/uploads', express.static('uploads'));
 
 // 404 + error handler
 app.use(notFound);

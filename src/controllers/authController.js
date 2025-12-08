@@ -54,12 +54,10 @@ export const register = async (req, res, next) => {
     }
 };
 
-// LOGIN (with account lock & MFA)
 export const login = async (req, res, next) => {
     try {
         const { email, password, mfaToken } = req.body;
 
-        // we need passwordHash, so select +passwordHash
         const user = await User.findOne({ email }).select("+passwordHash +mfaSecret");
         if (!user) {
             return res
@@ -83,10 +81,8 @@ export const login = async (req, res, next) => {
                 .json({ success: false, message: "Invalid credentials" });
         }
 
-        // Password correct → reset attempts
         await user.resetLoginAttempts();
 
-        // If MFA enabled, require mfaToken
         if (user.isMFAEnabled) {
             if (!mfaToken) {
                 return res.status(206).json({
@@ -109,13 +105,19 @@ export const login = async (req, res, next) => {
 
         await saveRefreshToken(user._id, refreshToken, req);
 
-        // You can also send as httpOnly cookies
+        res.cookie("refreshToken", refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "strict",
+            path: "/",
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+        });
+
         return res.status(200).json({
             success: true,
             message: "Login successful",
             data: {
                 accessToken,
-                refreshToken,
                 user: {
                     id: user._id,
                     email: user.email,
@@ -133,24 +135,23 @@ export const login = async (req, res, next) => {
 // REFRESH TOKEN
 export const refreshToken = async (req, res, next) => {
     try {
-        const { refreshToken } = req.body;
+        const refreshToken = req.cookies.refreshToken;
 
         if (!refreshToken) {
-            return res
-                .status(400)
-                .json({ success: false, message: "Refresh token required" });
+            return res.status(401).json({
+                success: false,
+                message: "No refresh token provided",
+            });
         }
 
         const stored = await RefreshToken.findOne({ token: refreshToken }).populate(
             "user"
         );
         if (!stored || !stored.user) {
-            return res
-                .status(401)
-                .json({ success: false, message: "Invalid refresh token" });
+            res.clearCookie("refreshToken");
+            return res.status(401).json({ success: false, message: "Invalid refresh token" });
         }
 
-        // verify JWT
         const decoded = verifyRefreshToken(refreshToken);
         if (decoded.sub.toString() !== stored.user._id.toString()) {
             return res
@@ -161,17 +162,23 @@ export const refreshToken = async (req, res, next) => {
         const accessToken = generateAccessToken(stored.user);
         const newRefreshToken = generateRefreshToken(stored.user);
 
-        // rotate token
         stored.token = newRefreshToken;
         const decodedNew = verifyRefreshToken(newRefreshToken);
         stored.expiresAt = new Date(decodedNew.exp * 1000);
         await stored.save();
 
+        res.cookie("refreshToken", newRefreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "strict",
+            path: "/",
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+        });
+
         return res.json({
             success: true,
             data: {
                 accessToken,
-                refreshToken: newRefreshToken,
             },
         });
     } catch (err) {
@@ -182,10 +189,18 @@ export const refreshToken = async (req, res, next) => {
 // LOGOUT
 export const logout = async (req, res, next) => {
     try {
-        const { refreshToken } = req.body;
+        const refreshToken = req.cookies.refreshToken;
         if (refreshToken) {
             await RefreshToken.deleteOne({ token: refreshToken });
         }
+
+        res.clearCookie("refreshToken", {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "strict",
+            path: "/",
+        });
+
         return res.json({
             success: true,
             message: "Logged out successfully",
@@ -304,7 +319,6 @@ export const requestLoginOTP = async (req, res, next) => {
     }
 };
 
-// OTP LOGIN (verify OTP)
 export const verifyLoginOTP = async (req, res, next) => {
     try {
         const { email, otp } = req.body;
@@ -325,16 +339,27 @@ export const verifyLoginOTP = async (req, res, next) => {
         user.loginOTP = undefined;
         await user.save();
 
+        // generate tokens
         const accessToken = generateAccessToken(user);
         const refreshToken = generateRefreshToken(user);
+
+        // save refresh token record
         await saveRefreshToken(user._id, refreshToken, req);
+
+        // set refresh token cookie (same as in login)
+        res.cookie("refreshToken", refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "strict",
+            path: "/",
+            maxAge: 30 * 24 * 60 * 60 * 1000,
+        });
 
         return res.json({
             success: true,
             message: "Login successful",
             data: {
                 accessToken,
-                refreshToken,
                 user: {
                     id: user._id,
                     email: user.email,
