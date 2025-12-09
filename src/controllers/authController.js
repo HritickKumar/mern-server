@@ -373,3 +373,32 @@ export const verifyLoginOTP = async (req, res, next) => {
         next(err);
     }
 };
+
+export const adminLogin = async (req, res, next) => {
+    try {
+        const { email, password, mfaToken } = req.body;
+        const user = await User.findOne({ email }).select("+passwordHash +mfaSecret");
+        if (!user) return res.status(400).json({ success: false, message: "Invalid credentials" });
+
+        if (!user.roles.includes("admin")) {
+            return res.status(403).json({ success: false, message: "Not an admin" });
+        }
+
+        if (user.isAccountLocked()) return res.status(423).json({ success: false, message: "Account locked" });
+
+        const match = await user.comparePassword(password);
+        if (!match) { await user.incrementLoginAttempts(); return res.status(400).json({ success: false, message: "Invalid credentials" }); }
+        await user.resetLoginAttempts();
+
+        if (user.isMFAEnabled) {
+            if (!mfaToken) return res.status(206).json({ success: false, message: "MFA required", mfaRequired: true });
+            if (!verifyMFAToken(user.mfaSecret, mfaToken)) return res.status(400).json({ success: false, message: "Invalid MFA token" });
+        }
+
+        const accessToken = generateAccessToken(user);
+        const refreshToken = generateRefreshToken(user);
+        await saveRefreshToken(user._id, refreshToken, req);
+
+        return res.json({ success: true, data: { accessToken, refreshToken, user: { id: user._id, email: user.email, roles: user.roles } } });
+    } catch (err) { next(err); }
+};

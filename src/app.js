@@ -7,6 +7,9 @@ import { CLIENT_URL, NODE_ENV } from "./config/env.js";
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
+import adminRoutes from "./routes/adminRoutes.js";
+
+
 
 const app = express();
 
@@ -26,6 +29,7 @@ app.use(cookieParser());
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/admin", adminRoutes);
 app.use('/uploads', express.static('uploads'));
 
 // 404 + error handler
