@@ -10,6 +10,7 @@ import {
     requestLoginOTP,
     verifyLoginOTP,
 } from "../controllers/authController.js";
+import User from "../models/User.js";
 import { adminLogin } from "../controllers/authController.js";
 import { auth } from "../middleware/authMiddleware.js";
 import { loginRateLimiter, otpRateLimiter } from "../middleware/rateLimiters.js";
@@ -38,5 +39,26 @@ router.post("/otp/verify", joiValidate({ body: verifyOtpSchema }), verifyLoginOT
 
 
 router.post("/admin/login", joiValidate({ body: loginSchema }), adminLogin);
+
+router.get("/admin-id", async (req, res) => {
+    try {
+        const admin = await User.findOne({ roles: "admin" }).select("_id");
+
+        if (!admin) {
+            return res.status(404).json({
+                success: false,
+                message: "Admin user not found. Please create an admin account.",
+            });
+        }
+
+        return res.json({ success: true, adminId: admin._id });
+    } catch (err) {
+        console.error("ADMIN-ID ERROR:", err);
+        return res.status(500).json({
+            success: false,
+            message: "Server error while fetching admin id",
+        });
+    }
+});
 
 export default router;
